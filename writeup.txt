@@ -1,0 +1,98 @@
+  This binary highlights that important code can execute well before main is
+ever called. For the majority of sofware developers, main is the beginning and
+end to their code. That is not the case. There are a full set of functions and
+routines that run before main that establish the stack, heap, various sections,
+their memory protections, etc. Once main has been reached, a good amount of
+program execution has already occurred. When one drops into assembly and
+removes the need for compilation, main is not even needed to have a fully
+functional program.
+
+  With that said, jumping into main shows 256 bytes zeroed out on the stack. A
+message prompts the user to enter a password. The password is stored in the
+256 bytes. The password length is taken. The char at the length index minus
+one is set to zero. The fgets function was used to get user input. If the
+number of bytes read from the file stream specified (in this case stdin) is
+less than the max number of bytes to be read, the newline character will be
+picked up in the reading. This operation removes the newline and replaces it
+with zero, the null terminating string byte.
+
+  The length is taken again for the new string and compared to the value 8. If
+it is greater than or equal to 8, the length is divided by 8. This value is the
+number of executions for the MOVSQ.REP instruction. The instruction moves 8
+bytes, a quadword, from the source address in the RSI register to the
+destination address in the RDI register. The instruction will continue moving
+quadwords until RCX is equal 0. RCX is decremented with each execution of the
+instruction. RDI and RSI are incremented or decremented depending on the
+setting of the DF flag in the EFLAGS register with each execution/iteration.
+The value of the increment or decrement is determined based on the size being
+operated on (ex: quadword 8, doubleword 4, word 2, byte 1).
+
+  The author then accounts for the string lengths that are not multiples of 8.
+This is accomplished by using the TEST instruction. The TEST instruction
+performs an AND operation on the two operands and sets the appropriate flags
+based on the result. The result is discarded. The first check is the length of
+the string and 4. Keep in mind 0 AND anything is 0. If the result is not zero,
+a doubleword is copied from the address in RSI to the address in RDI.
+
+  The same is then performed for the length of the string and 2. If the result
+of the previous TEST operation did not set the zero flag, EAX is set to 4.
+EAX is zero otherwise. A word (2 bytes) is copied from the address in RSI plus
+the EAX offset to the address in RDI plus the EAX offset, if the result of TEST
+length of the string and 2 is not zero.
+
+  A 1 is then compared with string length using the TEST instruction. The EAX
+register will be 6, 4, or 2 based on the checks in the previous two blocks. If
+the TEST instruction performed on 1 and the string length is not zero, a byte
+is copied from the address in the RSI register plus the EAX offset to the
+address in the RDI register plus the EAX offset.
+
+  An address from the .data section, 0xc100 from the original file, is placed
+into the EAX register. Two other addresses are placed into the EDI (0x1360) and
+ESI (0x1340) registers. The two addresses in the ESI and EDI registers are in 
+the .text section and are thus executable code. The address in EAX is not an
+executable block and will fail if jumped to. The program uses the CALL
+instruction to jump to the EAX address while saving the instruction after the
+CALL on the stack. This is an indicator that something changed the protections
+and made the address in EAX executable somewhere in the pre main code.
+
+  At this point I decided to have a look to see if mprotect is referenced
+anywhere in the binary. It is! The mprotect function gives the ability to
+dynamically change the protection on a block of memory. This allows a
+programmer the ability to change a read and write block into a read, write,
+execute block. Scanning the binary a function at address 0x10f0 calls
+mprotect with the third parameter equal to 7. 7 indicates the read, write,
+execute described above. The address in question to change is 0xc000 and the
+size of the block to change is 0x13c or 316 bytes. The address being jumped to
+at 0xc100 is within this block.
+
+  How is the function at 0x10f0 called? Analyzing the binary a bit more shows
+The address is the third element of the __DT_INIT_ARRAY. This is the
+.init_array section and contains a list of function pointers to be called in
+order as part of the initialization process. This is done well before main as
+discussed in the introduction. This is a function of the runtime linker before
+the application is given control to execute the main function.
+
+  After the protection has been changed on the block a loop is entered to
+decrypt the bytes. A pointer is set to the beginning of the block (0xc000). The
+value 0x7fff74f1 is placed in the EAX register. The pointer is advanced 4 bytes
+with each iteration, indicating we are operating on doublewords. The EAX
+register is multiplied by 32, 0x1505 added to that product and OR'd by 0x1b0.
+The pointer address after being incremented by 4 is compared to 0xc13c. If the
+address is not equal the loop will continue. The function is then exited.
+
+  Disassembling the now decrypted bytes, shows bytes being checked for equality
+and jump targets taken or not based on the equality. The user input password
+has a pointer assigned to its address. The fifth character is compared to 0x4d
+or the letter 'J'. If it is not equal it jumps to a jump target in the function
+that jumps to the addres in the RDI register. The RDI register address contains
+code that will print the message, "Wrong password!" With this in mind, we want
+to avoid taking that path.
+
+  Next the tenth byte in the user input password is compared to 0x20 or the 
+space character. The following list will show the remaining comparisons that
+need to hold to avoid the "Wrong password!" message.
+
+  If all the checks and the appropriate flag settings check out, the "You found
+the password..." message is output. There are still a few other interesting
+finds in this binary but I will leave that for a part 2.
+
