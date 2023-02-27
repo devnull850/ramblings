@@ -1,0 +1,123 @@
+Analysis of CrackReverse
+
+  The main function is found at 0x17e0 in memory. Three encrypted strings are
+placed on the stack. A function is then entered that blocks keyboard and mouse
+input for 5 milliseconds. After execution of the block and sleep function, 
+the program calls the Windows API function EnumWindows. This function goes
+through all the top windows on the screen. A callback is passed a handle to
+each window. The callback defined in the program checks if a window's title bar
+text contains a list of commonly used debugging and reversing tools. It simply
+prints a message "Alert! Close <window title bar text>" but does not actually
+exit. Note a one is placed in memory location 0x212f0 in the .data section.
+
+  The user in then prompted for a password. The password can have a max of 255
+bytes based on the format specified to scanf, "%255s".
+
+  The first string placed on the stack has its length calculated by using two
+pointers, their difference in location, and a loop until a null byte is
+encountered. The string and its length are passed into a function that
+performs an XOR operation on every character by 0x22. The string after the
+loop now reads, "Success!\n".
+
+  The third string placed on the stack has its length calculated using the same
+approach of two pointers and a loop checking for a null byte. It and its length
+are passed into the function that performs an XOR operation on every character
+by 0x22. The string after the function reads, "Secret key".
+
+  The same operation is done on the second string placed on the stack. After
+the function it will contain, "\nAccess Denied!\n".
+
+  A function is entered that checks if the 104th byte of the
+ProcessEnvironmentBlock has the 4th, 5th, and 6th bits all set. This is
+accomplished by performing an AND operation with the byte and the mask 0x70
+followed by the equality check to 0x70. I am not certain as to the true purpose
+of the check but I would imagine it is intended to ensure the ApiSetMap is what
+the author intends this program to run in and not something the reverser
+changes to allow better analysis, whether that is using custom implemented
+windows API functions linked to or something completely different and/or more
+advanced.  If the bits are not all set, the function returns a 0. If they are
+all set, the function returns a 1.
+
+  If the return value from the function is a 1, some operations are performed
+that contains a division by 0 and thus an OS trap will occur. If the return
+value from the function is a 0, execution will continue.
+
+  The user input password has its length calculated using the two pointers and
+a loop method checking for the null byte. A comparison is performed of the last
+character of the password to 0x66 or the letter 'f'. If they are not equal, the
+string "\nAccess Denied!\n" is output to the terminal. The main function then
+returns (exits by return).
+
+  The length is then calculated again and checked to see if it is less than
+255. A system library function is called that appears to abort if the length is
+greater than or equal to 255.
+
+  The character at length minus one (the last character of the string) is
+replaced with a null byte. A checksum like function is entered that takes the
+function that checks the user input password for validity, the index to start
+the checksum loop, a value to compare against one of the calculations, another
+value to compare against the other calculation, and the loop terminating index.
+
+  The checksum like function starts at 48 bytes into the function and iterates
+until the 400th byte after the beginning of the function, incrementing by 1
+byte with each iteration. Each byte is zero extended and added to a double word
+(4 byte) total that is initialized to zero. The add with carry, the carry
+flag result of the previous addition, is added to zero. The result of the add
+with carry is stored in a double word that is initialized to zero. The result
+of the first addition is stored back into its double word as well.
+
+  At the end of the loop the first double word is compared to the value 0x92e7.
+If it is not equal, a branch is taken that performs some operations that
+eventually do a division by zero. If it is equal, the second double word is
+compared to zero. If it is equal, the branch bypassing the operations with 
+division by zero is taken.
+
+  The user input string checking function is entered. A couple strings have
+their address copied to the stack. Another string has its bytes copied into
+the stack.  This string is 36 bytes long. The user input string has its length
+calculated using the two pointers and loop checking for a null byte. If the
+length is greater than or equal to 37, the function continues.
+
+  A loop is entered that copies the user input string to a location on the
+stack, character by character.
+
+  After the user input copying loop, another loop is entered that will perform
+operations on the user input copy on the stack to modify its values. The loop
+starts at the index 50 and decrements by one until the index is less than 0.
+The first two strings placed on the stack have their characters subtracted by
+48. One string contains the values that determine which operation to perform.
+The other string contains the indices into the user input string copy to
+determine which byte to operate on.
+
+  If the operation string byte is 1 the user input string copy byte at the
+index string byte is XOR's by 0x2f. If the operation string byte is 2, the user
+input string copy byte at the index string byte has 0x33 added to its value.
+If the operation string byte is 3, the user input string copy byte at the index
+string byte is divided by 2. If the operation string byte is 0, the user
+input string copy byte at the index string byte has 1 subtracted from its
+value.
+
+  When the loop completes, another loop is entered that will check each
+resulting byte in the user input string copy is equal to the 36 byte string
+copied onto to the stack. If any byte is not equal, a flag is cleared. The flag
+is initially set to one. After the loop, the flag is compared to 0. If it is
+not equal, 1 is returned from the function. If it is zero, a zero is returned.
+
+  A zero returned from the password checking function will result in the
+"\nAccess Denied!\n" message output to the terminal. A 1 will print
+"Success!\n" and "Secret Key" to the terminal. The password then has its
+bytes summed and used as the first vararg with 5 being the second for the
+format specifier string ": %d%d\n" passed to the printf function.
+
+  Reversing the operations of the password checking functions will generate the
+string "SuperSecretBackdoorPassword0123456789f". Note, the division by 2
+operation is lossy because two initial values can result in the same value. I
+could never get the string from one simple pass from running the attached
+crack.c. I ended up settling by adding a one to the multiplication, reversing 
+the division for the operation 3, as that resulted in a more closer match to a
+readable input string. The 19th, 20th, 21st, and 29th bytes will need be
+adjusted a little to get the input string.
+
+  As mentioned attached is the file, crack.c, that I used to generate the user
+input string.
+
